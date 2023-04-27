@@ -238,4 +238,45 @@ loaders = get_loaders(
     valid_transforms_fn=valid_transforms,
     batch_size=batch_size
 )
+loaders.info("Model definition")
+import segmentation_models_pytorch as smp
+# We will use Feature Pyramid Network with pre-trained ResNeXt50 backbone
+model = smp.FPN(encoder_name="resnext50_32x4d", classes=1)
+loaders.info("Model training")
+from torch import nn
+from catalyst.contrib.nn import DiceLoss, IoULoss
+# we have multiple criterions
+criterion = {
+    "dice": DiceLoss(),
+    "iou": IoULoss(),
+    "bce": nn.BCEWithLogitsLoss()
+}
+from torch import optim
+from catalyst.contrib.nn import RAdam, Lookahead
+learning_rate = 0.001
+encoder_learning_rate = 0.0005
+# Since we use a pre-trained encoder, we will reduce the learning rate on it.
+layerwise_params = {"encoder": dict(lr=encoder_learning_rate, weight_decay=0.00003)}
+# This function removes weight_decay for biases and applies our layerwise_params
+model_params = utils.process_model_params(model, layerwise_params=layerwise_params)
+# Catalyst has new SOTA optimizers out of box
+base_optimizer = RAdam(model_params, lr=learning_rate, weight_decay=0.0003)
+optimizer = Lookahead(base_optimizer)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.25, patience=2)
+
+from catalyst.dl import SupervisedRunner
+num_epochs = 3
+logdir = "./logs/segmentation"
+device = utils.get_device()
+logging.info(f"Device: {device}")
+
+if is_fp16_used:
+    fp16_params = dict(opt_level="01")
+else:
+    fp16_params = None
+logging.info(f"FP16 params: {fp16_params}")
+
+# by default SupervisedRunner uses "features" and "targets",
+# in our case we get "image" and "mask" keys in dataset __getitem__
+runner = SupervisedRunner(device=device, input_key="image", input_target_key="mask")
 logging.info("Done!")
