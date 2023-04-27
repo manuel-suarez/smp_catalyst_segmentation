@@ -279,4 +279,64 @@ logging.info(f"FP16 params: {fp16_params}")
 # by default SupervisedRunner uses "features" and "targets",
 # in our case we get "image" and "mask" keys in dataset __getitem__
 runner = SupervisedRunner(device=device, input_key="image", input_target_key="mask")
+
+logging.info("Training")
+from catalyst.dl import DiceCallback, IouCallback, CriterionCallback, MetricAggregationCallback
+from catalyst.contrib.callbacks import DrawMasksCallback
+
+callbacks = [
+    # Each criterion is calculated separately.
+    CriterionCallback(
+        input_key="mask",
+        prefix="loss_dice",
+        criterion_key="dice"
+    ),
+    CriterionCallback(
+        input_key="mask",
+        prefix="loss_iou",
+        criterion_key="iou"
+    ),
+    CriterionCallback(
+        input_key="mask",
+        prefix="loss_bce",
+        criterion_key="bce"
+    ),
+    # And only then we aggregate everything into one loss.
+    MetricAggregationCallback(
+        prefix="loss",
+        mode="weighted_sum", # can be "sum", "weighted_sum", or "mean"
+        # because we want weighted sum, we need to add scale for each loss
+        metrics={"loss_dice": 1.0, "loss_iou": 1.0, "loss_bce": 0.8},
+    ),
+    # metrics
+    DiceCallback(input_key="mask"),
+    IouCallback(input_key="mask"),
+    # visualization
+    DrawMasksCallback(output_key='logits',
+                      input_image_key='image',
+                      input_mask_key='mask',
+                      summary_step=50
+                      )
+]
+runner.train(
+    model=model,
+    criterion=criterion,
+    optimizer=optimizer,
+    scheduler=scheduler,
+    # our dataloaders
+    loaders=loaders,
+    # we can specify the callbacks list for the experiment:
+    callbacks=callbacks,
+    # path to save logs
+    logdir=logdir,
+    num_epochs=num_epochs,
+    # save our best checkpoint by IoU metric
+    main_metric="iou",
+    # IoU needs to be maximized.
+    minimize_metric=False,
+    # for FP16.
+    fp16=fp16_params,
+    # print train logs
+    verbose=True
+)
 logging.info("Done!")
