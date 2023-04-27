@@ -339,4 +339,41 @@ runner.train(
     # print train logs
     verbose=True
 )
+
+# Model inference
+TEST_IMAGES = sorted(test_image_path.glob("*.jpg"))
+# create test dataset
+test_dataset = SegmentationDataset(
+    TEST_IMAGES,
+    transforms=valid_transforms
+)
+num_workers: int = 4
+infer_loader = DataLoader(
+    test_dataset,
+    batch_size=batch_size,
+    shuffle=False,
+    num_workers=num_workers
+)
+# this get predictions for the whole loader
+predictions = np.vstack(list(map(
+    lambda x: x["logits"].cpu().numpy(),
+    runner.predict_loader(loader=infer_loader, resume=f"{logdir}/checkpoints/best.pth")
+)))
+logging.info(type(predictions))
+logging.info(predictions.shape)
+
+threshold = 0.5
+max_count = 5
+
+for i, (features, logits) in enumerate(zip(test_dataset, predictions)):
+    image = utils.tensor_to_ndimage(features["image"])
+
+    mask_ = torch.from_numpy(logits[0]).sigmoid()
+    mask = utils.detach(mask_ > threshold).astype("float")
+
+    show_examples(name="", image=image, mask=mask)
+
+    if i >= max_count:
+        break
+
 logging.info("Done!")
