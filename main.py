@@ -68,6 +68,7 @@ def show_random(images: List[Path], masks: List[Path], figname: str, transforms=
     show(index, images, masks, figname, transforms)
 
 show_random(ALL_IMAGES, ALL_MASKS, "figure1.png")
+exit(-1)
 
 from typing import List
 from torch.utils.data import Dataset
