@@ -376,4 +376,91 @@ for i, (features, logits) in enumerate(zip(test_dataset, predictions)):
     if i >= max_count:
         break
 
+# Model tracing
+batch = next(iter(loaders["valid"]))
+# saves to `logdir` and returns a `ScriptModule` class
+runner.trace(model=model, batch=batch, logdir=logdir, fp16=is_fp16_used)
+
+from catalyst.utils import trace
+
+if is_fp16_used:
+    model = trace.load_traced_model(
+        f"{logdir}/trace/traced-forward-opt_O1.pth",
+        device="cuda",
+        opt_level="O1"
+    )
+else:
+    model = trace.load_traced_model(
+        f"{logdir}/trace/traced-forward.pth",
+        device="cpu"
+    )
+model_input = batch["image"].to("cuda" if is_fp16_used else "cpu")
+model(model_input)
+
+# Custom callbacks
+import collections
+
+from catalyst.dl import Callback, CallbackOrder, IRunner
+
+
+class CustomInferCallback(Callback):
+    def __init__(self):
+        super().__init__(CallbackOrder.Internal)
+        self.heatmap = None
+        self.counter = 0
+
+    def on_loader_start(self, runner: IRunner):
+        self.predictions = None
+        self.counter = 0
+
+    def on_batch_end(self, runner: IRunner):
+        # data from the Dataloader
+        # image, mask = runner.input["image"], runner.input["mask"]
+        logits = runner.output["logits"]
+        probabilities = torch.sigmoid(logits)
+
+        self.heatmap = (
+            probabilities
+            if self.heatmap is None
+            else self.heatmap + probabilities
+        )
+        self.counter += len(probabilities)
+
+    def on_loader_end(self, runner: IRunner):
+        self.heatmap = self.heatmap.sum(axis=0)
+        self.heatmap /= self.counter
+
+from collections import OrderedDict
+from catalyst.dl import CheckpointCallback
+
+
+infer_loaders = {"infer": loaders["valid"]}
+model = smp.FPN(encoder_name="resnext50_32x4d", classes=1)
+
+device = utils.get_device()
+if is_fp16_used:
+    fp16_params = dict(opt_level="O1") # params for FP16
+else:
+    fp16_params = None
+
+runner = SupervisedRunner(device=device, input_key="image", input_target_key="mask")
+runner.infer(
+    model=model,
+    loaders=infer_loaders,
+    callbacks=OrderedDict([
+        ("loader", CheckpointCallback(resume=f"{logdir}/checkpoints/best.pth")),
+        ("infer", CustomInferCallback())
+    ]),
+    fp16=fp16_params,
+)
+
+import matplotlib
+import matplotlib.pyplot as plt
+
+heatmap = utils.detach(runner.runner.callbacks["infer"].heatmap[0])
+plt.figure(figsize=(20, 9))
+plt.imshow(heatmap, cmap="hot", interpolation="nearest")
+plt.show()
+plt.savefig("figure3.png")
+
 logging.info("Done!")
