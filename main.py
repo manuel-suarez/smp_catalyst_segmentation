@@ -18,7 +18,7 @@ logging.info("Start")
 
 logging.info("Data preparation")
 from pathlib import Path
-ROOT = Path("segmentation_data/")
+ROOT = Path("/home/mario.canul/carvana/segmentation_data/")
 train_image_path = ROOT / "train"
 train_mask_path = ROOT / "train_masks"
 test_image_path = ROOT / "test"
