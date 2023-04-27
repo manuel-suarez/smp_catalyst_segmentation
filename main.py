@@ -64,7 +64,7 @@ def show(index: int, images: List[Path], masks: List[Path], figname: str, transf
 
 def show_random(images: List[Path], masks: List[Path], figname: str, transforms=None) -> None:
     length = len(images)
-    index = random.radint(0, length - 1)
+    index = random.randint(0, length - 1)
     show(index, images, masks, figname, transforms)
 
 show_random(ALL_IMAGES, ALL_MASKS, "figure1.png")
